@@ -24,6 +24,9 @@ import sys
 import time
 from threading import Thread
 import importlib.util
+import logging
+import logging.handlers as handlers
+import pyttsx3
 
 # Define VideoStream class to handle streaming of video from webcam in separate processing thread
 # Source - Adrian Rosebrock, PyImageSearch: https://www.pyimagesearch.com/2015/12/28/increasing-raspberry-pi-fps-with-python-and-opencv/
@@ -78,12 +81,15 @@ parser.add_argument('--graph', help='Name of the .tflite file, if different than
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
                     default='labelmap.txt')
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
-                    default=0.5)
+                    default=0.7)
 parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
                     default='1280x720')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
                     action='store_true')
-parser.add_argument('--camindex', help="Index of camera", default=0)
+parser.add_argument('--camindex', help="Index of camera",
+                    default=0)
+parser.add_argument('--leftcam', help='Declare option for left camera',
+                    action='store_true')
 
 args = parser.parse_args()
 
@@ -95,6 +101,17 @@ resW, resH = args.resolution.split('x')
 imW, imH = int(resW), int(resH)
 use_TPU = args.edgetpu
 camIndex = int(args.camindex)
+is_left_cam = args.leftcam
+
+# Setup logger
+logger = logging.getLogger('VIZCAM')
+logger.setLevel(logging.INFO)
+
+logHandler = handlers.TimedRotatingFileHandler(f'cam{"left" if is_left_cam else "right"}.log', when='d', backupCount=5)
+logHandler.setLevel(logging.INFO)
+logHandler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+logger.addHandler(logHandler)
 
 # Import TensorFlow libraries
 # If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflow
@@ -169,6 +186,10 @@ else: # This is a TF1 model
 frame_rate_calc = 1
 freq = cv2.getTickFrequency()
 
+# Initialize Text-To-Speech
+tts_engine = pyttsx3.init()
+print(tts_engine.getProperty('rate'))
+
 # Initialize video stream
 videostream = VideoStream(resolution=(imW,imH),framerate=30,camIndex=camIndex).start()
 time.sleep(1)
@@ -201,10 +222,13 @@ while True:
     classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0] # Class index of detected objects
     scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
 
+    objects_str = ""
     for i in range(len(classes)):
         if scores[i] > min_conf_threshold:
-         print(labels[int(classes[i])] + " " + str(scores[i]), end=" ")
-    print("")
+            tts_engine.say(labels[int(classes[i])] + " detected on your " + ("left" if is_left_cam else "right"))
+            objects_str += "\t" + labels[int(classes[i])] + " " + str(scores[i]) + "\n"
+    logger.info("Objects detected: " + str(frame_rate_calc) + " FPS\n" + objects_str)
+    tts_engine.runAndWait()
 
     # Loop over all detections and draw detection box if confidence is above minimum threshold
 #    for i in range(len(scores)):
@@ -229,7 +253,6 @@ while True:
 
     # Draw framerate in corner of frame
 #    cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-    print(frame_rate_calc)
 
     # All the results have been drawn on the frame, so it's time to display it.
 #    cv2.imshow('Object detector', frame)
