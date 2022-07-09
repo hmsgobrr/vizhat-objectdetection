@@ -188,7 +188,7 @@ freq = cv2.getTickFrequency()
 
 # Initialize Text-To-Speech
 tts_engine = pyttsx3.init()
-print(tts_engine.getProperty('rate'))
+#voices = tts_engine.getProperty('voices')
 
 # Initialize video stream
 videostream = VideoStream(resolution=(imW,imH),framerate=30,camIndex=camIndex).start()
@@ -223,11 +223,14 @@ while True:
     scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
 
     objects_str = ""
+    objects = []
     for i in range(len(classes)):
         if scores[i] > min_conf_threshold:
-            tts_engine.say(labels[int(classes[i])] + " detected on your " + ("left" if is_left_cam else "right"))
+            objects.append(labels[int(classes[i])])
             objects_str += "\t" + labels[int(classes[i])] + " " + str(scores[i]) + "\n"
     logger.info("Objects detected: " + str(frame_rate_calc) + " FPS\n" + objects_str)
+    if len(objects) > 0:
+        tts_engine.say(", ".join(objects) + " on your " + ("left" if is_left_cam else "right"))
     tts_engine.runAndWait()
 
     # Loop over all detections and draw detection box if confidence is above minimum threshold
