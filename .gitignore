@@ -1,2 +1,4 @@
-camleft.log*
-camright.log*
+cam*.log*
+*.jpg
+efficientnet_lite3/
+ssd_mobilenet_v2/

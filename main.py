@@ -32,7 +32,7 @@ import pyttsx3
 # Source - Adrian Rosebrock, PyImageSearch: https://www.pyimagesearch.com/2015/12/28/increasing-raspberry-pi-fps-with-python-and-opencv/
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
-    def __init__(self,resolution=(640,480),framerate=30,camIndex=0):
+    def __init__(self,resolution=(1920,1080),framerate=30,camIndex=0):
         # Initialize the PiCamera and the camera image stream
         self.stream = cv2.VideoCapture(camIndex)
         ret = self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
@@ -81,16 +81,15 @@ parser.add_argument('--graph', help='Name of the .tflite file, if different than
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
                     default='labelmap.txt')
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
-                    default=0.7)
+                    default=0.4)
 parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
-                    default='1280x720')
+                    default='1920x1080')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
                     action='store_true')
-parser.add_argument('--camindex', help="Index of camera",
+parser.add_argument('--lcamindex', help="Index of left camera",
                     default=0)
-parser.add_argument('--leftcam', help='Declare option for left camera',
-                    action='store_true')
-
+parser.add_argument('--rcamindex', help="Index of right camera",
+                    default=0)
 args = parser.parse_args()
 
 MODEL_NAME = args.modeldir
@@ -98,16 +97,16 @@ GRAPH_NAME = args.graph
 LABELMAP_NAME = args.labels
 min_conf_threshold = float(args.threshold)
 resW, resH = args.resolution.split('x')
-imW, imH = int(resW), int(resH)
+imW, imH = int(resW), int(resH)*2
 use_TPU = args.edgetpu
-camIndex = int(args.camindex)
-is_left_cam = args.leftcam
+left_cam_index = int(args.lcamindex)
+right_cam_index = int(args.rcamindex)
 
 # Setup logger
 logger = logging.getLogger('VIZCAM')
 logger.setLevel(logging.INFO)
 
-logHandler = handlers.TimedRotatingFileHandler(f'cam{"left" if is_left_cam else "right"}.log', when='d', backupCount=5)
+logHandler = handlers.TimedRotatingFileHandler(f'cam.log', when='d', backupCount=5)
 logHandler.setLevel(logging.INFO)
 logHandler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
@@ -191,7 +190,8 @@ tts_engine = pyttsx3.init()
 #voices = tts_engine.getProperty('voices')
 
 # Initialize video stream
-videostream = VideoStream(resolution=(imW,imH),framerate=30,camIndex=camIndex).start()
+left_cam = VideoStream(resolution=(imW,imH),framerate=30,camIndex=left_cam_index).start()
+right_cam = VideoStream(resolution=(imW,imH),framerate=30,camIndex=right_cam_index).start()
 time.sleep(1)
 
 #for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
@@ -200,11 +200,11 @@ while True:
     # Start timer (for calculating frame rate)
     t1 = cv2.getTickCount()
 
-    # Grab frame from video stream
-    frame1 = videostream.read()
+    left_cam_frame = left_cam.read()
+    right_cam_frame = right_cam.read()
 
     # Acquire frame and resize to expected shape [1xHxWx3]
-    frame = frame1.copy()
+    frame = np.vstack((left_cam_frame, right_cam_frame))
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     frame_resized = cv2.resize(frame_rgb, (width, height))
     input_data = np.expand_dims(frame_resized, axis=0)
@@ -213,58 +213,65 @@ while True:
     if floating_model:
         input_data = (np.float32(input_data) - input_mean) / input_std
 
-    # Perform the actual detection by running the model with the image as input
+     # Perform the actual detection by running the model with the image as input
     interpreter.set_tensor(input_details[0]['index'],input_data)
     interpreter.invoke()
 
     # Retrieve detection results
-    boxes = interpreter.get_tensor(output_details[boxes_idx]['index'])[0] # Bounding box coordinates of detected objects
-    classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0] # Class index of detected objects
-    scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
+    boxes = interpreter.get_tensor(output_details[boxes_idx]['index'])[0][0][0].tolist() # Bounding box coordinates of detected objects
+    classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0][0][0].tolist() # Class index of detected objects
+    scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0][0][0].tolist() # Confidence of detected objects
+
+    print(scores)
 
     objects_str = ""
     objects = []
-    for i in range(len(classes)):
+    for i in range(len(scores)):
         if scores[i] > min_conf_threshold:
-            objects.append(labels[int(classes[i])])
+            if len(labels[int(classes[i])]) > 1:
+                objCount = []
+                objCount.append(labels[int(classes[i])])
+            objects.append(str(len(objCount)) + " " + labels[int(classes[i])])
             objects_str += "\t" + labels[int(classes[i])] + " " + str(scores[i]) + "\n"
-    logger.info("Objects detected: " + str(frame_rate_calc) + " FPS\n" + objects_str)
+            print(labels[int(classes[i])])
+    #logger.info("Objects detected: " + str(frame_rate_calc) + " FPS\n" + objects_str)
     if len(objects) > 0:
-        tts_engine.say(", ".join(objects) + " on your " + ("left" if is_left_cam else "right"))
+        tts_engine.say(", ".join(objects) + " detected")
     tts_engine.runAndWait()
 
     # Loop over all detections and draw detection box if confidence is above minimum threshold
-#    for i in range(len(scores)):
-#        if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
-#
-#            # Get bounding box coordinates and draw box
-#            # Interpreter can return coordinates that are outside of image dimensions, need to force them to be within image using max() and min()
-#            ymin = int(max(1,(boxes[i][0] * imH)))
-#            xmin = int(max(1,(boxes[i][1] * imW)))
-#            ymax = int(min(imH,(boxes[i][2] * imH)))
-#            xmax = int(min(imW,(boxes[i][3] * imW)))
-#
-#            cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 2)
-#
-#            # Draw label
-#            object_name = labels[int(classes[i])] # Look up object name from "labels" array using class index
-#            label = '%s: %d%%' % (object_name, int(scores[i]*100)) # Example: 'person: 72%'
-#            labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) # Get font size
-#            label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
-#            cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
-#            cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
+    for i in range(len(scores)):
+        if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
+
+            # Get bounding box coordinates and draw box
+            # Interpreter can return coordinates that are outside of image dimensions, need to force them to be within image using max() and min()
+            ymin = int(max(1,(boxes[i][0] * imH)))
+            xmin = int(max(1,(boxes[i][1] * imW)))
+            ymax = int(min(imH,(boxes[i][2] * imH)))
+            xmax = int(min(imW,(boxes[i][3] * imW)))
+
+            cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 2)
+
+            # Draw label
+            object_name = labels[int(classes[i])] # Look up object name from "labels" array using class index
+            label = '%s: %d%%' % (object_name, int(scores[i]*100)) # Example: 'person: 72%'
+            labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) # Get font size
+            label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
+            cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
+            cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
 
     # Draw framerate in corner of frame
-#    cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
+    cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
 
     # All the results have been drawn on the frame, so it's time to display it.
-#    cv2.imshow('Object detector', frame)
+    cv2.imwrite('outimg.jpg', frame)
 
     # Calculate framerate
     t2 = cv2.getTickCount()
     time1 = (t2-t1)/freq
     frame_rate_calc= 1/time1
 
+    time.sleep(1)
     # Press 'q' to quit
 #    if cv2.waitKey(1) == ord('q'):
 #        break
