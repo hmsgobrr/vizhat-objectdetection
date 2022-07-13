@@ -218,25 +218,34 @@ while True:
     interpreter.invoke()
 
     # Retrieve detection results
-    boxes = interpreter.get_tensor(output_details[boxes_idx]['index'])[0][0][0].tolist() # Bounding box coordinates of detected objects
-    classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0][0][0].tolist() # Class index of detected objects
-    scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0][0][0].tolist() # Confidence of detected objects
+    boxes = interpreter.get_tensor(output_details[boxes_idx]['index'])[0] # Bounding box coordinates of detected objects
+    classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0] # Class index of detected objects
+    scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
 
     print(scores)
 
     objects_str = ""
+    count = dict()
     objects = []
     for i in range(len(scores)):
         if scores[i] > min_conf_threshold:
-            if len(labels[int(classes[i])]) > 1:
-                objCount = []
-                objCount.append(labels[int(classes[i])])
-            objects.append(str(len(objCount)) + " " + labels[int(classes[i])])
+            # if len(labels[int(classes[i])]) > 1:
+            #     objCount = []
+            #     objCount.append(labels[int(classes[i])])
+            count[labels[int(classes[i])]] = count.get(labels[int(classes[i])], 0) + 1
+
+            # objects.append(str(count[labels[int(classes[i])]]) + " " + labels[int(classes[i])])
             objects_str += "\t" + labels[int(classes[i])] + " " + str(scores[i]) + "\n"
-            print(labels[int(classes[i])])
+            # print(labels[int(classes[i])])
     #logger.info("Objects detected: " + str(frame_rate_calc) + " FPS\n" + objects_str)
-    if len(objects) > 0:
-        tts_engine.say(", ".join(objects) + " detected")
+    print(count)
+    # if len(count) > 0:
+        # tts_engine.say(", ".join(objects) + " detected")
+        # tts_engine.say(" detected")
+    for obj, amount in count.items():
+        tts_engine.say(f"{amount} {obj}, ")
+    if len(count) > 0:
+        tts_engine.say(" detected")
     tts_engine.runAndWait()
 
     # Loop over all detections and draw detection box if confidence is above minimum threshold
