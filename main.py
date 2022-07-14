@@ -81,7 +81,7 @@ parser.add_argument('--graph', help='Name of the .tflite file, if different than
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
                     default='labelmap.txt')
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
-                    default=0.4)
+                    default=0.6)
 parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
                     default='1920x1080')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
@@ -222,30 +222,65 @@ while True:
     classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0] # Class index of detected objects
     scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] # Confidence of detected objects
 
-    print(scores)
-
     objects_str = ""
-    count = dict()
-    objects = []
+    front = dict()
+    left = dict()
+    right = dict()
+    # objects = []
     for i in range(len(scores)):
         if scores[i] > min_conf_threshold:
+            ymin = boxes[i][0]*imH
+            xmin = boxes[i][1]*imW
+            ymax = boxes[i][2]*imH
+            xmax = boxes[i][3]*imW
+            center_x = (xmin + xmax)/2
+            center_y = (ymin + ymax)/2
+
+            if center_y < imH/2:
+                if center_x < (imW/2-10):
+                    object_pos = "front"
+                else:
+                    object_pos = "right"
+            else:
+                if center_x > (imW - imW/2+10):
+                    object_pos = "front"
+                else:
+                    object_pos = "left"
+
+            if object_pos == "front":
+                front[labels[int(classes[i])]] = right.get(labels[int(classes[i])], 0) + 1
+            elif object_pos == "right":
+                right[labels[int(classes[i])]] = right.get(labels[int(classes[i])], 0) + 1
+            elif object_pos == "left":
+                left[labels[int(classes[i])]] = right.get(labels[int(classes[i])], 0) + 1
+
             # if len(labels[int(classes[i])]) > 1:
             #     objCount = []
             #     objCount.append(labels[int(classes[i])])
-            count[labels[int(classes[i])]] = count.get(labels[int(classes[i])], 0) + 1
+            # count[labels[int(classes[i])]] = count.get(labels[int(classes[i])], 0) + 1
 
             # objects.append(str(count[labels[int(classes[i])]]) + " " + labels[int(classes[i])])
             objects_str += "\t" + labels[int(classes[i])] + " " + str(scores[i]) + "\n"
             # print(labels[int(classes[i])])
-    #logger.info("Objects detected: " + str(frame_rate_calc) + " FPS\n" + objects_str)
-    print(count)
+    logger.info("Objects detected: " + str(frame_rate_calc) + " FPS\n" + objects_str)
     # if len(count) > 0:
         # tts_engine.say(", ".join(objects) + " detected")
         # tts_engine.say(" detected")
-    for obj, amount in count.items():
+    for obj, amount in left.items():
         tts_engine.say(f"{amount} {obj}, ")
-    if len(count) > 0:
-        tts_engine.say(" detected")
+    if len(left) > 0:
+        tts_engine.say(" on your left")
+
+    for obj, amount in right.items():
+        tts_engine.say(f"{amount} {obj}, ")
+    if len(right) > 0:
+        tts_engine.say(" on your right")
+    
+    for obj, amount in front.items():
+        tts_engine.say(f"{amount} {obj}, ")
+    if len(front) > 0:
+        tts_engine.say(" in front of you")
+    
     tts_engine.runAndWait()
 
     # Loop over all detections and draw detection box if confidence is above minimum threshold
