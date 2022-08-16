@@ -327,7 +327,6 @@ while True:
     # if len(front) > 0:
     #     tts_engine.say(" in front of you")
 
-    print(objects)
     for obj_pos in objects:
         for obj_dist in objects[obj_pos]:
             items = objects[obj_pos][obj_dist].items()
