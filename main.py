@@ -34,7 +34,7 @@ CAM2_FOCAL = 1550
 NEAR_THRESHOLD = 100
 KNOWN_OBJ_WIDTHS = {
     "laptop": 38,
-   # "person": 22,
+    "person": 22,
     "chair": 20,
     "bicycle": 52,
     "car": 448
@@ -327,8 +327,9 @@ while True:
     # if len(front) > 0:
     #     tts_engine.say(" in front of you")
 
+    print(objects)
     for obj_pos in objects:
-        for obj_dist in objects[object_pos]:
+        for obj_dist in objects[obj_pos]:
             items = objects[obj_pos][obj_dist].items()
             for obj, amount in items:
                 tts_engine.say(f"{amount} {obj}, ")
